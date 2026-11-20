@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="340" viewBox="0 0 1280 340" role="img" aria-labelledby="t d">
+  <title id="t">Hybrid Retrieval</title>
+  <desc id="d">Sparse + dense search, fused and reranked, with measured trade-offs.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.82" cy="0.18" r="0.65">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.3" fill="#fff" fill-opacity="0.11"/>
+    </pattern>
+    <clipPath id="frame"><rect width="1280" height="340" rx="28"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="340" fill="url(#bg)"/>
+    <rect width="1280" height="340" fill="url(#dots)"/>
+    <rect width="1280" height="340" fill="url(#glow)"/>
+    <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+      <g fill='#fff' stroke='none' fill-opacity='0.6'><rect x='900' y='104' width='12' height='26' rx='3'/><rect x='918' y='80' width='12' height='50' rx='3'/><rect x='936' y='112' width='12' height='18' rx='3'/><rect x='954' y='66' width='12' height='64' rx='3'/><rect x='972' y='96' width='12' height='34' rx='3'/></g><line x1='896' y1='136' x2='990' y2='136' stroke-width='2.5' stroke-opacity='0.5'/><g fill='#fff' stroke='none' fill-opacity='0.45'><circle cx='910' cy='214' r='5'/><circle cx='934' cy='196' r='5'/><circle cx='926' cy='246' r='5'/><circle cx='958' cy='262' r='5'/><circle cx='978' cy='206' r='5'/><circle cx='906' cy='270' r='5'/></g><circle cx='952' cy='228' r='8' fill='#fff' stroke='none'/><circle cx='952' cy='228' r='22' stroke-width='2.5' stroke-opacity='0.6' stroke-dasharray='5 5'/><path d='M996 100 C 1030 100, 1018 165, 1044 165' stroke-width='3.5' stroke-opacity='0.75'/><path d='M996 230 C 1030 230, 1018 165, 1044 165' stroke-width='3.5' stroke-opacity='0.75'/><circle cx='1062' cy='165' r='18' fill='#fff' fill-opacity='0.12' stroke-width='4'/><path d='M1062 156 v18 M1053 165 h18' stroke-width='3.5'/><path d='M1082 165 L1100 165' stroke-width='3.5' stroke-opacity='0.8'/><rect x='1110' y='92' width='122' height='24' rx='12' fill='#fff' fill-opacity='0.92' stroke='none'/><rect x='1110' y='126' width='104' height='24' rx='12' stroke-width='3' stroke-opacity='0.85'/><rect x='1110' y='160' width='90' height='24' rx='12' stroke-width='3' stroke-opacity='0.7'/><rect x='1110' y='194' width='74' height='24' rx='12' stroke-width='3' stroke-opacity='0.55'/><rect x='1110' y='228' width='60' height='24' rx='12' stroke-width='3' stroke-opacity='0.4'/><path d='M1240 150 C 1252 130, 1252 112, 1240 104' stroke-width='3' stroke-opacity='0.6' stroke-dasharray='4 5'/><path d='M1236 100 l6 4 l-7 3' stroke-width='3' stroke-opacity='0.6'/>
+    </g>
+  </g>
+  <text x="64" y="138" font-family="'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="66" font-weight="800" fill="#fff" letter-spacing="-1.5">Hybrid Retrieval</text>
+  <text x="66" y="188" font-family="'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="23" fill="#fff" fill-opacity="0.9">Sparse + dense search, fused and reranked, with measured trade-offs.</text>
+  <rect x="66" y="236" width="173" height="34" rx="17" fill="#fff" fill-opacity="0.14" stroke="#fff" stroke-opacity="0.28"/><text x="152" y="258.5" text-anchor="middle" font-family="'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#fff">BM25 from scratch</text>
+  <rect x="249" y="236" width="156" height="34" rx="17" fill="#fff" fill-opacity="0.14" stroke="#fff" stroke-opacity="0.28"/><text x="327" y="258.5" text-anchor="middle" font-family="'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#fff">Dense bge-small</text>
+  <rect x="415" y="236" width="114" height="34" rx="17" fill="#fff" fill-opacity="0.14" stroke="#fff" stroke-opacity="0.28"/><text x="472" y="258.5" text-anchor="middle" font-family="'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#fff">RRF fusion</text>
+  <rect x="539" y="236" width="139" height="34" rx="17" fill="#fff" fill-opacity="0.14" stroke="#fff" stroke-opacity="0.28"/><text x="608" y="258.5" text-anchor="middle" font-family="'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#fff">Cross-encoder</text>
+  <rect x="688" y="236" width="139" height="34" rx="17" fill="#fff" fill-opacity="0.14" stroke="#fff" stroke-opacity="0.28"/><text x="758" y="258.5" text-anchor="middle" font-family="'Segoe UI', Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#fff">Typed filters</text>
+</svg>

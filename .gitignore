@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+
+# Secrets: never commit keys
+.env
+
+# Downloaded datasets, built indexes and model caches (recreated by scripts)
+/data/
+/indexes/
+.cache/
+
+# Runtime logs
+*.log
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
