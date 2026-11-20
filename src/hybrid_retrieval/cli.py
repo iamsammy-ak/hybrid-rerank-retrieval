@@ -16,10 +16,11 @@ from rich.table import Table
 from .beir import download_beir, load_beir
 from .bm25 import BM25Params
 from .demo import load_demo_corpus, load_models, run_demo
+from .dense import DenseIndex
 from .embedders import Embedder, FastEmbedEmbedder, load_embedder
 from .filters import FilterError
 from .index import HybridIndex, embedder_from_info
-from .rerank import Reranker, load_reranker
+from .rerank import CrossEncoderReranker, Reranker, load_reranker
 from .schemas import Document
 from .search import HybridSearcher, SearchConfig
 from .tokenizer import TokenizerConfig
@@ -70,6 +71,23 @@ class StemmerChoice(str, Enum):
 def _fail(message: str) -> NoReturn:
     console.print(f"[red]error:[/] {message}")
     raise typer.Exit(code=2)
+
+
+def _reproduce_command(args: list[str]) -> str:
+    """The command line to record next to results, without machine-specific path options."""
+    kept: list[str] = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg in ("--data-dir", "--index-dir", "--out"):
+            skip = True
+            continue
+        if arg.startswith(("--data-dir=", "--index-dir=", "--out=")):
+            continue
+        kept.append(arg)
+    return " ".join(["python -m hybrid_retrieval", *kept])
 
 
 def _progress_bar() -> Progress:
@@ -209,6 +227,7 @@ def bench(dataset: str = typer.Option("scifact", help="BEIR dataset name."),
           filters: bool = typer.Option(True, help="Run the pre- vs post-filter experiment."),
           bm25_rerank: bool = typer.Option(True, help="Also rerank the BM25 list at the headline depth."),
           sparse_only: bool = typer.Option(False, help="BM25 only (no models): defaults, no-stemming, k1 x b grid."),
+          threads: int | None = typer.Option(None, help="ONNX Runtime threads per model (lower = less memory)."),
           offline: bool = typer.Option(False, help="Never download models.")) -> None:
     """Benchmark every method on a BEIR dataset with the real models; writes JSON + Markdown."""
     from .evaluation import BenchSettings, run_benchmark, run_sparse_benchmark
@@ -216,7 +235,7 @@ def bench(dataset: str = typer.Option("scifact", help="BEIR dataset name."),
 
     folder, _ = download_beir(dataset, data_dir)
     ds = load_beir(folder)
-    command = " ".join(["python -m hybrid_retrieval", *sys.argv[1:]]) if sys.argv[1:2] == ["bench"] else (
+    command = _reproduce_command(sys.argv[1:]) if sys.argv[1:2] == ["bench"] else (
         f"python -m hybrid_retrieval bench --dataset {dataset}" + (" --sparse-only" if sparse_only else ""))
     out.mkdir(parents=True, exist_ok=True)
     if sparse_only:
@@ -227,15 +246,15 @@ def bench(dataset: str = typer.Option("scifact", help="BEIR dataset name."),
         console.print(f"[green]wrote[/] {(out / ('bm25_' + dataset)).as_posix()}.json and .md")
         return
     target = index_dir / dataset
-    embedder = FastEmbedEmbedder(local_files_only=offline)
+    embedder = FastEmbedEmbedder(local_files_only=offline, threads=threads)
     if not (target / "manifest.json").exists():
         with _progress_bar() as bar:
             task = bar.add_task(f"embedding {len(ds.corpus):,} documents (one-off)", total=len(ds.corpus))
             HybridIndex.build(ds.corpus, embedder, progress=lambda done, _total: bar.update(task, completed=done)
                               ).save(target, with_int8=True)
     idx = HybridIndex.load(target)
-    int8_index = HybridIndex.load(target, quantised=True).dense
-    reranker = _reranker_for(RerankerChoice.minilm, embedder, offline)
+    int8_index = DenseIndex.load(target, quantised=True)
+    reranker = CrossEncoderReranker(local_files_only=offline, threads=threads, batch_size=10)
     searcher = HybridSearcher(idx, embedder, reranker)
     no_instruction = embedder.with_prefixes(query_prefix="")  # shares the loaded ONNX session
     settings = BenchSettings(rerank_depths=[int(d) for d in rerank_depths.split(",") if d.strip()],

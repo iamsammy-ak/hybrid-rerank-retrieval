@@ -111,3 +111,10 @@ def test_cli_index_from_jsonl(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     result = runner.invoke(app, ["search", "second", "--index", str(tmp_path / "i"), "--mode", "bm25", "--json"])
     assert json.loads(ANSI.sub("", result.output))["hits"][0]["doc_id"] == "b"
+
+
+def test_reproduce_command_drops_machine_paths() -> None:
+    from hybrid_retrieval.cli import _reproduce_command
+
+    args = ["bench", "--dataset", "scifact", "--data-dir", "/tmp/x", "--index-dir=/tmp/y", "--threads", "4"]
+    assert _reproduce_command(args) == "python -m hybrid_retrieval bench --dataset scifact --threads 4"

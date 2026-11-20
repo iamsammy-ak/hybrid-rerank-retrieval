@@ -14,7 +14,8 @@
 no words, and also when the query is nothing but an error code. It runs a from-scratch BM25 index and a dense
 embedding index side by side, fuses their rankings, lets a cross-encoder reorder the head of the list, and
 applies typed metadata filters. Every stage is timed, and a benchmark harness for BEIR datasets reports what each
-stage buys in quality and costs in latency.
+stage buys in quality and costs in latency. On BEIR SciFact, fusion lifts nDCG@10 from 0.677 (BM25) and 0.713
+(dense) to 0.733 at 19 ms per query, while an off-the-shelf cross-encoder costs seconds per query and lowers it.
 
 ![hybrid-search demo: each stage's top hits for three queries, with timings](assets/demo.svg)
 
@@ -76,6 +77,70 @@ flowchart LR
 
 ## Benchmarks
 
+### The full pipeline on BEIR SciFact (measured)
+
+5,183 abstracts, 300 test queries, 100 candidates per retriever. Every method runs on the same queries in one
+process; latency is wall-clock per query, with each stage timed separately (p50 in the stage columns).
+
+| Method | nDCG@10 | Recall@100 | MRR@10 | Sparse ms | Dense ms | Fusion ms | Rerank ms | Total p50 / p95 ms |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| BM25 | 0.677 | 0.912 | 0.647 | 0.7 | | | | 0.7 / 0.9 |
+| Dense (bge-small, float32) | 0.713 | 0.942 | 0.682 | | 18.1 | | | 18.1 / 27.9 |
+| Dense, int8 index | 0.715 | 0.942 | 0.685 | | 23.0 | | | 23.0 / 32.6 |
+| Hybrid RRF (k = 60) | 0.718 | 0.968 | 0.686 | 0.7 | 18.1 | 0.2 | | 19.0 / 28.8 |
+| Hybrid convex (α = 0.5, min-max) | **0.733** | **0.972** | **0.701** | 0.7 | 18.1 | 0.1 | | 19.0 / 28.8 |
+| Hybrid convex (α = 0.5, z-score) | **0.734** | **0.972** | **0.701** | 0.7 | 18.1 | 0.2 | | 19.0 / 29.0 |
+| Hybrid RRF + cross-encoder, top 10 | 0.706 | 0.968 | 0.672 | 0.7 | 18.1 | 0.2 | 1,523 | 1,544 / 1,610 |
+| Hybrid RRF + cross-encoder, top 20 | 0.701 | 0.968 | 0.668 | 0.7 | 18.1 | 0.2 | 3,029 | 3,047 / 3,176 |
+| Hybrid RRF + cross-encoder, top 50 | 0.694 | 0.968 | 0.661 | 0.7 | 18.1 | 0.2 | 7,538 | 7,560 / 7,858 |
+
+![nDCG@10 against p95 latency for every configuration, with the Pareto frontier](assets/pareto_scifact.png)
+
+![nDCG@10 and Recall@100 per method on SciFact](assets/methods_scifact.png)
+
+What the numbers say:
+
+- **Hybrid beats either retriever, almost for free.** The convex blend adds +0.020 nDCG@10 and +0.030
+  Recall@100 over dense retrieval alone (+0.056 and +0.060 over BM25), for about one extra millisecond: BM25 and
+  fusion together take under 1 ms, so hybrid latency is dense latency.
+- **Where the time goes.** The dense stage is 18 ms at p50, most of it encoding the query with the ONNX model:
+  the search itself is a single 5,183 x 384 matrix-vector product, and dropping the nine-word query instruction
+  alone cuts the stage to 14.5 ms. BM25 takes 0.7 ms and fusion 0.2 ms.
+- **This cross-encoder makes SciFact worse.** `ms-marco-MiniLM-L-6-v2` lowers nDCG@10 from 0.718 (the RRF list
+  it reranks) to 0.706 at depth 10 and 0.694 at depth 50, while adding 1.5 to 7.5 seconds per query on four CPU
+  threads (about 1.5 s per batch of ten abstracts, roughly 150 ms per query-abstract pair). It was trained on
+  web search queries; SciFact queries are scientific claims and its passages are long abstracts cut at 512
+  tokens. For context, the BEIR paper reports 0.688 for this reranker on top of BM25 on SciFact (cited, not
+  measured here), below what bge-small reaches on its own. No rerank setting is on the Pareto frontier, so on
+  this data the right rerank depth is zero; the harness is what makes that visible. A domain-matched or larger
+  reranker is the next thing to try.
+- **Fusion settings matter more than the method name.** RRF with the conventional k = 60 recovers most of the
+  recall but little nDCG; smaller k does better here (k = 1: 0.734), and convex α between 0.5 and 0.7 forms a
+  plateau (0.729-0.736). These sweeps run on the test split, so they show sensitivity, not tuned settings. The
+  frontier points between 28.7 and 29.1 ms differ by less than measurement noise; only their quality differs.
+- **int8 costs no quality.** The quantised index scores 0.715 against 0.713 and uses 2.0 MB instead of 8.0 MB,
+  but is 5 ms slower at p50 because NumPy de-quantises each block before the product (there is no int8 kernel).
+- **The BGE query instruction did not help here.** Without it dense retrieval scores 0.720 nDCG@10 and 0.953
+  Recall@100 (with it: 0.713 and 0.942). The default follows the model card; this is the kind of choice to
+  validate on held-out data per corpus.
+- **Pre- vs post-filtering.** With a synthetic filter that keeps 2% of the corpus, pre-filtering still returns a
+  full top-10 for 100% of queries; post-filtering does so for 1% (3.7 hits on average). At 50% and 10% both fill
+  the page for 99-100% of queries. Only 6 and 31 queries keep a judged document at 2% and 10%, too few to
+  compare the two modes' ranking quality, so the page-fill rate is the result to read. Full table in the report.
+
+Reproduce (about 40 minutes on this laptop, almost all of it cross-encoder scoring, which is checkpointed every
+25 queries so an interrupted run resumes):
+
+```bash
+python -m hybrid_retrieval download scifact
+python -m hybrid_retrieval bench --dataset scifact --no-bm25-rerank --threads 4
+python benchmarks/make_charts.py scifact
+```
+
+`--no-bm25-rerank` skips the BM25 + cross-encoder baseline and `--threads 4` caps ONNX Runtime, both to fit the
+8 GB development laptop. Full report, including the RRF `k` and convex `alpha` sweeps, the ablations and the
+filter table: [`benchmarks/results/scifact.md`](benchmarks/results/scifact.md).
+
 ### BM25 on BEIR (measured)
 
 | Dataset | Method | nDCG@10 | Recall@100 | MRR@10 | p50 ms | p95 ms | Published BM25 nDCG@10 |
@@ -111,27 +176,6 @@ python benchmarks/make_charts.py
 Full reports with the whole grid: [`benchmarks/results/bm25_scifact.md`](benchmarks/results/bm25_scifact.md),
 [`benchmarks/results/bm25_nfcorpus.md`](benchmarks/results/bm25_nfcorpus.md).
 
-### Dense, hybrid and reranked (not yet measured)
-
-The full comparison is implemented and tested end to end, but its SciFact run is not part of this release: on
-the 8 GB laptop used for development the run was stopped for lack of memory during cross-encoder scoring, and no
-number is reported that was not measured. Cross-encoder scores and their measured batch times are now
-checkpointed every 25 queries under `indexes/<dataset>/bench_checkpoints/`, so an interrupted run resumes where
-it stopped. One command runs it:
-
-```bash
-python -m hybrid_retrieval bench --dataset scifact      # writes benchmarks/results/scifact.{json,md}
-python benchmarks/make_charts.py scifact                # Pareto frontier + per-method chart
-```
-
-It embeds the corpus once (cached under `indexes/`), then reports BM25, dense (float32 and int8, with index
-memory), hybrid RRF and convex fusion (min-max and z-score), hybrid + cross-encoder at depths 10/20/30/50, BM25 +
-cross-encoder, ablations (no stemming, no query instruction), sweeps of RRF `k` and convex `alpha`, a pre- vs
-post-filtering experiment at 50%, 10% and 2% selectivity, per-stage p50/p95 latency, and the nDCG@10 vs p95
-latency Pareto frontier. How latency is measured: stages run one query at a time in one process and are timed
-with `perf_counter`; the cross-encoder scores candidates in timed batches of 10, so the latency at depth N is the
-measured time of the first N/10 batches.
-
 ### Data and licences
 
 - **SciFact**: Wadden et al., *Fact or Fiction: Verifying Scientific Claims*, EMNLP 2020. Claims and annotations
@@ -144,7 +188,8 @@ measured time of the first N/10 batches.
   was during development) it falls back to the BeIR organisation's Hugging Face mirror, pinned to a fixed
   revision and verified against SHA-256 checksums. Nothing is committed; data lives in the git-ignored `data/`.
 - Hardware for the numbers above: AMD Ryzen 5 5600H (6 cores, 12 threads), 8 GB RAM, Windows 11, Python 3.13,
-  one query at a time. The bundled 48-document demo corpus was written for this project.
+  ONNX Runtime 1.32 capped at 4 threads for the full run, one query at a time. The bundled 48-document demo
+  corpus was written for this project.
 
 ## Quick start
 
@@ -228,12 +273,14 @@ built the index, because mixed embedding spaces fail silently.
   and loses nothing to approximation, so there is no HNSW graph to tune. Memory is handled by the optional int8
   index instead. Past roughly a million vectors, an approximate index (HNSW or IVF) becomes the better trade.
 - **RRF as the default fusion, convex combination as the tunable option.** RRF uses only ranks, so it needs no
-  score calibration and its one parameter is forgiving. A convex blend can do as well or better, but only with an
-  `alpha` tuned on held-out data. The benchmark's `alpha` sweep reports how sensitive it is, as a sensitivity
-  analysis on the test split, not as a tuned setting.
+  score calibration. It was chosen as the default before any measurement. On SciFact the convex blend at α = 0.5
+  then beat RRF with k = 60 by 0.015 nDCG@10, and RRF with a small k matched it. Those sweeps ran on the test
+  split, so the honest next step is to pick `k` or `alpha` on SciFact's train split, not to change the default
+  from these numbers.
 - **Rerank the head, keep the tail.** The cross-encoder costs one transformer pass per candidate, so latency grows
   linearly with the depth N. Reordering only the first N hits and keeping the rest below them makes N a pure
-  latency knob and keeps Recall@100 comparable across depths.
+  latency knob and keeps Recall@100 comparable across depths. Reranking is off by default (`rerank_depth=0`),
+  which the SciFact result supports: there, this reranker cost seconds and lowered quality.
 - **Pre-filtering by default.** Applying the mask inside each retriever before its top-k means a selective filter
   still returns a full page when enough documents match. Post-filtering is easier to bolt onto an existing
   vector store, but it throws away retrieved candidates that fail the filter, so selective filters return short
@@ -291,11 +338,13 @@ The suite runs in well under a minute without any model download. Highlights:
 - Single process, in memory, exact search. That is the right shape up to roughly a million documents; beyond
   that it needs an approximate index, sharding and incremental updates (adding documents currently means a
   rebuild).
-- The dense, hybrid and reranked SciFact numbers are not in this release (see Benchmarks); only BM25 has been
-  measured on BEIR so far. The harness for the rest is implemented and tested on the bundled corpus.
-- Latency was measured on a laptop CPU that was also running other work, so absolute milliseconds are noisy.
-  The relative cost of the stages is the useful signal. Queries run one at a time, with no batching across
-  queries and no GPU.
+- The full pipeline was benchmarked on SciFact only; NFCorpus has BM25 numbers only, and the BM25 +
+  cross-encoder baseline was skipped to fit the development laptop's memory.
+- Latency was measured on a laptop CPU with ONNX Runtime capped at four threads, so absolute milliseconds,
+  especially the cross-encoder's, are higher than on a server or GPU. The relative cost of the stages is the
+  useful signal. Queries run one at a time, with no batching across queries.
+- Only one reranker was tried. Its result on SciFact says something about this model on this domain, not about
+  cross-encoders in general.
 - SciFact and NFCorpus are small and specialised (scientific and medical). Results can change on other domains,
   and parameter grids are computed on the test split, so they show sensitivity, not tuned values.
 - The filter experiment in the harness uses synthetic random metadata, because the BEIR datasets have none.
@@ -305,9 +354,9 @@ The suite runs in well under a minute without any model download. Highlights:
 ## Roadmap
 
 - [ ] An HNSW index behind the same interface, with a recall-vs-latency comparison against exact search
-- [ ] Tune fusion weights on a held-out split and report the test score once
+- [ ] Tune fusion weights and rerank depth on SciFact's train split and report the test score once
+- [ ] Try a stronger or domain-matched reranker (for example `bge-reranker-base`) against the same frontier
 - [ ] Incremental indexing with append-only segments and periodic merges
-- [ ] A learned sparse retriever (SPLADE) as a third first-stage list
 
 ## License
 

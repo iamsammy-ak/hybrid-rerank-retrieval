@@ -55,19 +55,34 @@ def pareto_chart(result: dict, out: Path) -> None:
     for name, (color, marker) in FAMILY_STYLE.items():
         sel = [p for p in points if family(p) == name]
         ax.scatter([p["p95_ms"] for p in sel], [p["ndcg@10"] for p in sel], s=34, color=color, marker=marker,
-                   edgecolors="white", linewidths=1.2, label=name, zorder=3)
+                   edgecolors="white", linewidths=1.2, label=name,
+                   zorder=5 if name == "first stage" else 3)
     front = sorted((p for p in points if p["name"] in frontier), key=lambda p: p["p95_ms"])
     xs = [p["p95_ms"] for p in front]
     ys = [p["ndcg@10"] for p in front]
     ax.step(xs, ys, where="post", color=INK, linewidth=1.6, zorder=2, label="Pareto frontier")
     ax.scatter(xs, ys, s=70, facecolors="none", edgecolors=INK, linewidths=1.4, zorder=4)
-    labelled = {"BM25", "Dense", "Dense int8", f"Hybrid RRF (k={result['settings']['rrf_k']:g})"}
-    labelled |= {p["name"] for p in points if p["family"] == "rerank"}
+    best = max(points, key=lambda p: p["ndcg@10"])
+    # (label, x offset, y offset, alignment) in points; chosen so labels do not collide
+    labels = {
+        "BM25": ("BM25", 8, 4, "left"),
+        "BM25, no stemming": ("BM25, no stemming", 8, -10, "left"),
+        "Dense": ("Dense", 8, -12, "left"),
+        "Dense int8": ("Dense int8", 8, 0, "left"),
+        "Dense, no query instruction": ("Dense, no query instruction", -9, -3, "right"),
+        f"Hybrid RRF (k={result['settings']['rrf_k']:g})": (f"Hybrid RRF (k={result['settings']['rrf_k']:g})", 9, -4,
+                                                             "left"),
+        best["name"]: (f"{best['name']} (best)", 9, 0, "left"),
+    }
     for p in points:
-        if p["name"] in labelled:
-            text = p["name"].replace("Hybrid RRF + rerank@", "RRF + rerank@")
-            ax.annotate(text, (p["p95_ms"], p["ndcg@10"]), xytext=(6, -11 if "BM25 +" in text else 5),
-                        textcoords="offset points", fontsize=8.5, color=INK_2)
+        if p["family"] == "rerank":
+            depth = p["name"].rsplit("@", 1)[-1]
+            labels[p["name"]] = (p["name"].replace("Hybrid RRF + ", "RRF + "), 7, 5 if int(depth) % 20 else -12, "left")
+    for p in points:
+        if p["name"] in labels:
+            text, dx, dy, ha = labels[p["name"]]
+            ax.annotate(text, (p["p95_ms"], p["ndcg@10"]), xytext=(dx, dy), textcoords="offset points",
+                        fontsize=8.5, color=INK_2, ha=ha)
     ax.set_xscale("log")
     ax.set_xlabel("p95 end-to-end latency per query (ms, log scale)", color=INK, fontsize=10)
     ax.set_ylabel("nDCG@10", color=INK, fontsize=10)
