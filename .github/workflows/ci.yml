@@ -22,6 +22,8 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Type-check
+        # numpy's stubs differ between the releases pip picks for 3.10 and 3.12; type-check against the newest.
+        if: matrix.python-version == '3.12'
         run: mypy
       - name: Test (real-model tests skip without a local model cache)
         run: pytest -q
